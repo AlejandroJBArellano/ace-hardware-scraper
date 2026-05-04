@@ -1,0 +1,24 @@
+{
+  "name": "ace-hardware-scraper",
+  "version": "1.0.0",
+  "description": "Scrape Ace Hardware store pages to collect manager, owner and email information, then export results to Excel.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test tests/"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "overrides": {
+    "uuid": "^14.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.16.0",
+    "cheerio": "^1.2.0",
+    "cli-progress": "^3.12.0",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "p-limit": "^7.3.0"
+  }
+}
