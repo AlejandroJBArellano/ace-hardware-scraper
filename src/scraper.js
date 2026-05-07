@@ -67,6 +67,12 @@ function extractFromJsonLd($) {
               result.zip = result.zip || addr.postalCode;
             }
             if (node.email) result.email = result.email || node.email;
+            // Direct owner field: "owner": { "@type": "Person", "name": "..." }
+            if (node.owner) {
+              const owner = Array.isArray(node.owner) ? node.owner[0] : node.owner;
+              if (owner && owner.name) result.owner = result.owner || owner.name;
+            }
+            // Employee list (some stores use this for manager/owner)
             if (node.employee) {
               const employees = Array.isArray(node.employee)
                 ? node.employee

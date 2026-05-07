@@ -2,7 +2,7 @@
 
 require('dotenv').config();
 
-const pLimit = require('p-limit');
+const pLimit = require('p-limit').default;
 const cliProgress = require('cli-progress');
 const { fetchStore } = require('./scraper');
 const { exportToExcel } = require('./exporter');
