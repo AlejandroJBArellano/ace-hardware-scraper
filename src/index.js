@@ -15,7 +15,7 @@ const CONFIG = {
   /** First store ID to try */
   ID_START: parseInt(process.env.ID_START || '10000', 10),
   /** Last store ID to try (inclusive) */
-  ID_END: parseInt(process.env.ID_END || '25000', 10),
+  ID_END: parseInt(process.env.ID_END || '99999', 10),
   /** Max concurrent HTTP requests */
   CONCURRENCY: parseInt(process.env.CONCURRENCY || '5', 10),
   /** Delay between batches in ms (be polite to the server) */

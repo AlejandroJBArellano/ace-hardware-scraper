@@ -224,7 +224,13 @@ async function fetchStore(storeId, options = {}) {
         return null;
       }
 
-      return parsePage(html, storeId);
+      const record = parsePage(html, storeId);
+
+      // Placeholder pages return 200 with the generic 1-800 number but no
+      // real store data. Skip them — a real store always has a name or address.
+      if (!record.storeName && !record.address) return null;
+
+      return record;
     } catch (err) {
       const isRetryable =
         err.code === 'ECONNRESET' ||
