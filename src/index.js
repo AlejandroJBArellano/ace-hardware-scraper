@@ -20,6 +20,8 @@ const CONFIG = {
   CONCURRENCY: parseInt(process.env.CONCURRENCY || '5', 10),
   /** Delay between batches in ms (be polite to the server) */
   BATCH_DELAY: parseInt(process.env.BATCH_DELAY || '500', 10),
+  /** Minimum delay between individual requests in ms (anti-bot) */
+  REQUEST_DELAY: parseInt(process.env.REQUEST_DELAY || '1500', 10),
   /** Request timeout in ms */
   REQUEST_TIMEOUT: parseInt(process.env.REQUEST_TIMEOUT || '15000', 10),
   /** Number of retries per request */
@@ -38,6 +40,16 @@ function range(start, end) {
   const ids = [];
   for (let i = start; i <= end; i++) ids.push(i);
   return ids;
+}
+
+/**
+ * Sleep for a random duration between min and min*1.5 ms.
+ * Randomized delays look more human to bot-detection systems.
+ * @param {number} min - Minimum delay in ms
+ */
+function randomSleep(min) {
+  const ms = min + Math.floor(Math.random() * min * 0.5);
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -73,6 +85,9 @@ async function main() {
 
   const tasks = ids.map((storeId) =>
     limit(async () => {
+      // Random delay before each request to avoid triggering Cloudflare bot detection
+      await randomSleep(CONFIG.REQUEST_DELAY);
+
       const record = await fetchStore(storeId, {
         timeout: CONFIG.REQUEST_TIMEOUT,
         retries: CONFIG.RETRIES,
