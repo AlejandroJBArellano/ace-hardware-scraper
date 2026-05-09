@@ -143,8 +143,41 @@ function parsePage(html, storeId) {
 }
 
 // ---------------------------------------------------------------------------
-// Fetch — plain axios (works on fresh IPs; GitHub Actions runners rotate IPs)
+// Fetch — uses ZenRows proxy when ZENROWS_API_KEY is set, plain axios otherwise
 // ---------------------------------------------------------------------------
+
+const ZENROWS_API_KEY = process.env.ZENROWS_API_KEY || '';
+const ZENROWS_ENDPOINT = 'https://api.zenrows.com/v1/';
+
+/**
+ * Build an axios request config — via ZenRows residential proxy if key is set,
+ * or direct HTTP otherwise.
+ */
+function buildRequest(storeUrl, timeout) {
+  if (ZENROWS_API_KEY) {
+    // ZenRows: premium_proxy=true uses residential IPs → bypasses Cloudflare
+    return {
+      method: 'get',
+      url: ZENROWS_ENDPOINT,
+      params: {
+        apikey: ZENROWS_API_KEY,
+        url: storeUrl,
+        premium_proxy: 'true',
+      },
+      timeout,
+      validateStatus: (s) => s < 500,
+    };
+  }
+  // Direct request (works on fresh/residential IPs)
+  return {
+    method: 'get',
+    url: storeUrl,
+    headers: getHeaders(),
+    timeout,
+    maxRedirects: 5,
+    validateStatus: (s) => s < 500,
+  };
+}
 
 /**
  * Fetch a single store page. Returns null if the store does not exist.
@@ -162,12 +195,7 @@ async function fetchStore(storeId, options = {}) {
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const response = await axios.get(url, {
-        headers: getHeaders(),
-        timeout,
-        maxRedirects: 5,
-        validateStatus: (status) => status < 500,
-      });
+      const response = await axios(buildRequest(url, timeout));
 
       if (onStatus) onStatus(storeId, response.status);
 
