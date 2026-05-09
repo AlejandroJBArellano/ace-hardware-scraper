@@ -143,17 +143,36 @@ function parsePage(html, storeId) {
 }
 
 // ---------------------------------------------------------------------------
-// Fetch — uses ZenRows proxy when ZENROWS_API_KEY is set, plain axios otherwise
+// Fetch — proxy priority: ScraperAPI > ZenRows > direct HTTP
 // ---------------------------------------------------------------------------
 
+const SCRAPERAPI_KEY  = process.env.SCRAPERAPI_KEY  || '';
 const ZENROWS_API_KEY = process.env.ZENROWS_API_KEY || '';
-const ZENROWS_ENDPOINT = 'https://api.zenrows.com/v1/';
+const SCRAPERAPI_ENDPOINT = 'https://api.scraperapi.com/';
+const ZENROWS_ENDPOINT    = 'https://api.zenrows.com/v1/';
 
 /**
- * Build an axios request config — via ZenRows residential proxy if key is set,
- * or direct HTTP otherwise.
+ * Build an axios request config.
+ * Priority:
+ *   1. ScraperAPI  — if SCRAPERAPI_KEY is set  (10 credits/req on Cloudflare)
+ *   2. ZenRows     — if ZENROWS_API_KEY is set  (10 credits/req on Cloudflare)
+ *   3. Direct HTTP — fallback (works on fresh/residential IPs only)
  */
 function buildRequest(storeUrl, timeout) {
+  if (SCRAPERAPI_KEY) {
+    // ScraperAPI automatically applies ultra-premium proxy for Cloudflare sites
+    return {
+      method: 'get',
+      url: SCRAPERAPI_ENDPOINT,
+      params: {
+        api_key: SCRAPERAPI_KEY,
+        url: storeUrl,
+      },
+      timeout,
+      validateStatus: (s) => s < 500,
+    };
+  }
+
   if (ZENROWS_API_KEY) {
     // ZenRows: premium_proxy=true uses residential IPs → bypasses Cloudflare
     return {
@@ -168,6 +187,7 @@ function buildRequest(storeUrl, timeout) {
       validateStatus: (s) => s < 500,
     };
   }
+
   // Direct request (works on fresh/residential IPs)
   return {
     method: 'get',
