@@ -1,0 +1,101 @@
+name: Ace Hardware Store Scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      total_chunks:
+        description: 'Number of parallel jobs (chunks)'
+        required: false
+        default: '10'
+      id_start:
+        description: 'First store ID to scan'
+        required: false
+        default: '10000'
+      id_end:
+        description: 'Last store ID to scan'
+        required: false
+        default: '99999'
+      concurrency:
+        description: 'Concurrent requests per job'
+        required: false
+        default: '3'
+      request_delay:
+        description: 'Delay between requests in ms'
+        required: false
+        default: '1000'
+
+jobs:
+  # ─── Step 1: Run 10 parallel scrape jobs ────────────────────────────────────
+  scrape:
+    name: Scrape chunk ${{ matrix.chunk }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # Keep going even if one chunk fails
+      matrix:
+        chunk: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scrape chunk ${{ matrix.chunk }}
+        env:
+          CHUNK: ${{ matrix.chunk }}
+          TOTAL_CHUNKS: ${{ github.event.inputs.total_chunks || '10' }}
+          ID_START: ${{ github.event.inputs.id_start || '10000' }}
+          ID_END: ${{ github.event.inputs.id_end || '99999' }}
+          CONCURRENCY: ${{ github.event.inputs.concurrency || '3' }}
+          REQUEST_DELAY: ${{ github.event.inputs.request_delay || '1000' }}
+          REQUEST_TIMEOUT: '15000'
+          RETRIES: '2'
+        run: node src/scrape-chunk.js
+
+      - name: Upload chunk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chunk-${{ matrix.chunk }}
+          path: output/chunk-${{ matrix.chunk }}.json
+          retention-days: 1
+
+  # ─── Step 2: Merge all chunks into a single Excel file ──────────────────────
+  merge:
+    name: Merge & Export Excel
+    needs: scrape
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download all chunk artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: output/chunks
+
+      - name: Merge chunks and export to Excel
+        run: node src/merge.js
+
+      - name: Upload final Excel
+        uses: actions/upload-artifact@v4
+        with:
+          name: stores-final
+          path: output/stores.xlsx
+          retention-days: 30

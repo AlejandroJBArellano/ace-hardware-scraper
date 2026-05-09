@@ -26,20 +26,14 @@ function getHeaders() {
   };
 }
 
-/**
- * Sleep for a given number of milliseconds.
- * @param {number} ms
- */
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Extract store data from JSON-LD structured data embedded in the page.
- * Ace Hardware typically embeds schema.org/LocalBusiness markup.
- * @param {import('cheerio').CheerioAPI} $
- * @returns {object}
- */
+// ---------------------------------------------------------------------------
+// HTML parsing helpers
+// ---------------------------------------------------------------------------
+
 function extractFromJsonLd($) {
   const result = {};
   $('script[type="application/ld+json"]').each((_, el) => {
@@ -47,28 +41,17 @@ function extractFromJsonLd($) {
       const data = JSON.parse($(el).html());
       const items = Array.isArray(data) ? data : [data];
       for (const item of items) {
-        // Could be wrapped in @graph
         const nodes = item['@graph'] ? item['@graph'] : [item];
         for (const node of nodes) {
           const type = node['@type'] || '';
-          if (
-            type === 'LocalBusiness' ||
-            type === 'HardwareStore' ||
-            type === 'Store'
-          ) {
+          if (type === 'LocalBusiness' || type === 'HardwareStore' || type === 'Store') {
             if (node.name) result.storeName = result.storeName || node.name;
-            if (node.telephone)
-              result.phone = result.phone || node.telephone;
+            if (node.telephone) result.phone = result.phone || node.telephone;
             if (node.address) {
               const addr = node.address;
               result.address =
                 result.address ||
-                [
-                  addr.streetAddress,
-                  addr.addressLocality,
-                  addr.addressRegion,
-                  addr.postalCode,
-                ]
+                [addr.streetAddress, addr.addressLocality, addr.addressRegion, addr.postalCode]
                   .filter(Boolean)
                   .join(', ');
               result.city = result.city || addr.addressLocality;
@@ -83,16 +66,11 @@ function extractFromJsonLd($) {
             }
             // Employee list (some stores use this for manager/owner)
             if (node.employee) {
-              const employees = Array.isArray(node.employee)
-                ? node.employee
-                : [node.employee];
+              const employees = Array.isArray(node.employee) ? node.employee : [node.employee];
               for (const emp of employees) {
                 const jobTitle = (emp.jobTitle || '').toLowerCase();
-                if (jobTitle.includes('manager')) {
-                  result.manager = result.manager || emp.name;
-                } else if (jobTitle.includes('owner')) {
-                  result.owner = result.owner || emp.name;
-                }
+                if (jobTitle.includes('manager')) result.manager = result.manager || emp.name;
+                else if (jobTitle.includes('owner')) result.owner = result.owner || emp.name;
               }
             }
           }
@@ -105,82 +83,50 @@ function extractFromJsonLd($) {
   return result;
 }
 
-/**
- * Extract text from the "Store information" section in the HTML.
- * @param {import('cheerio').CheerioAPI} $
- * @returns {object}
- */
 function extractFromHtml($) {
   const result = {};
 
-  // Helper: get text from next sibling or following element after a label
   function getValueAfterLabel($el) {
     const next = $el.next();
     if (next.length) return next.text().trim();
     return $el.parent().text().replace($el.text(), '').trim();
   }
 
-  // Find all text nodes that look like labels and grab their values
   $('*').each((_, el) => {
     const $el = $(el);
     const text = $el.clone().children().remove().end().text().trim();
     const lower = text.toLowerCase();
-
-    if (!result.manager && (lower === 'manager:' || lower === 'manager')) {
+    if (!result.manager && (lower === 'manager:' || lower === 'manager'))
       result.manager = getValueAfterLabel($el);
-    }
-    if (!result.owner && (lower === 'owner:' || lower === 'owner')) {
+    if (!result.owner && (lower === 'owner:' || lower === 'owner'))
       result.owner = getValueAfterLabel($el);
-    }
-    if (!result.email && (lower === 'email:' || lower === 'email')) {
+    if (!result.email && (lower === 'email:' || lower === 'email'))
       result.email = getValueAfterLabel($el);
-    }
   });
 
-  // Fallback: search for email pattern in entire page text
   if (!result.email) {
-    const fullText = $.html();
-    const emailMatch = fullText.match(
-      /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/,
-    );
+    const emailMatch = $.html().match(/\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/);
     if (emailMatch) result.email = emailMatch[0];
   }
-
-  // Store name from title or h1
   if (!result.storeName) {
     const h1 = $('h1').first().text().trim();
     if (h1) result.storeName = h1;
   }
-
-  // Phone number fallback from tel: links
   if (!result.phone) {
     const telLink = $('a[href^="tel:"]').first();
-    if (telLink.length) {
-      result.phone = telLink.attr('href').replace('tel:', '').trim();
-    }
+    if (telLink.length) result.phone = telLink.attr('href').replace('tel:', '').trim();
   }
-
-  // Address from meta or structured elements
   if (!result.address) {
     const addressEl = $('[itemprop="address"]').first();
     if (addressEl.length) result.address = addressEl.text().trim();
   }
-
   return result;
 }
 
-/**
- * Parse a store page HTML and return extracted fields.
- * @param {string} html
- * @param {number} storeId
- * @returns {object}
- */
 function parsePage(html, storeId) {
   const $ = cheerio.load(html);
   const jsonLdData = extractFromJsonLd($);
   const htmlData = extractFromHtml($);
-
-  // JSON-LD takes priority; HTML fallback fills gaps
   return {
     storeId,
     storeName: jsonLdData.storeName || htmlData.storeName || '',
@@ -196,17 +142,22 @@ function parsePage(html, storeId) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Fetch — plain axios (works on fresh IPs; GitHub Actions runners rotate IPs)
+// ---------------------------------------------------------------------------
+
 /**
- * Fetch a single store page. Returns null if the store does not exist (404).
+ * Fetch a single store page. Returns null if the store does not exist.
  * @param {number} storeId
  * @param {object} options
- * @param {number} options.timeout - Request timeout in ms (default 15000)
- * @param {number} options.retries - Number of retry attempts (default 3)
- * @param {number} options.retryDelay - Delay between retries in ms (default 2000)
+ * @param {number} options.timeout      - Request timeout in ms (default 15000)
+ * @param {number} options.retries      - Number of retry attempts (default 2)
+ * @param {number} options.retryDelay   - Delay between retries in ms (default 2000)
+ * @param {Function} [options.onStatus] - Callback(storeId, statusCode) for logging
  * @returns {Promise<object|null>}
  */
 async function fetchStore(storeId, options = {}) {
-  const { timeout = 15000, retries = 3, retryDelay = 2000 } = options;
+  const { timeout = 15000, retries = 2, retryDelay = 2000, onStatus } = options;
   const url = `${BASE_URL}/${storeId}`;
 
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -218,25 +169,30 @@ async function fetchStore(storeId, options = {}) {
         validateStatus: (status) => status < 500,
       });
 
-      // 404 or redirected to a "not found" page — store doesn't exist
-      if (response.status === 404) return null;
-      if (response.status !== 200) return null;
+      if (onStatus) onStatus(storeId, response.status);
 
-      // Some sites return 200 but with "not found" content
+      if (response.status === 403 || response.status === 429) {
+        // Rate limited — retry after delay
+        if (attempt < retries) {
+          await sleep(retryDelay * attempt);
+          continue;
+        }
+        return null;
+      }
+
+      if (response.status === 404 || response.status !== 200) return null;
+
       const html = response.data;
       if (
         typeof html === 'string' &&
-        (html.includes('Page Not Found') ||
-          html.includes('store not found') ||
-          html.includes('404'))
+        (html.includes('Page Not Found') || html.includes('store not found'))
       ) {
         return null;
       }
 
       const record = parsePage(html, storeId);
 
-      // Placeholder pages return 200 with the generic 1-800 number but no
-      // real store data. Skip them — a real store always has a name or address.
+      // Placeholder pages have no name or address — skip them
       if (!record.storeName && !record.address) return null;
 
       return record;
@@ -251,7 +207,6 @@ async function fetchStore(storeId, options = {}) {
         await sleep(retryDelay * attempt);
         continue;
       }
-      // Network errors or final retry exhausted
       return null;
     }
   }

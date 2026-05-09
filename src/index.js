@@ -4,7 +4,7 @@ require('dotenv').config();
 
 const pLimit = require('p-limit').default;
 const cliProgress = require('cli-progress');
-const { fetchStore } = require('./scraper');
+const { fetchStore, initBrowser, closeBrowser } = require('./scraper');
 const { exportToExcel } = require('./exporter');
 const path = require('path');
 
@@ -79,19 +79,31 @@ async function main() {
 
   bar.start(total, 0, { found: 0 });
 
+  // Track status counts for summary
+  const statusCounts = {};
+
+  await initBrowser();
+
+
   const limit = pLimit(CONFIG.CONCURRENCY);
   const results = [];
   let processed = 0;
 
   const tasks = ids.map((storeId) =>
     limit(async () => {
-      // Random delay before each request to avoid triggering Cloudflare bot detection
+      // Random delay before each request to avoid triggering bot detection
       await randomSleep(CONFIG.REQUEST_DELAY);
 
       const record = await fetchStore(storeId, {
         timeout: CONFIG.REQUEST_TIMEOUT,
         retries: CONFIG.RETRIES,
         retryDelay: CONFIG.BATCH_DELAY,
+        onStatus: (id, status) => {
+          statusCounts[status] = (statusCounts[status] || 0) + 1;
+          if (status === 403 || status === 429) {
+            bar.log(`  ⛔ [${id}] blocked — HTTP ${status}\n`);
+          }
+        },
       });
 
       processed++;
@@ -103,8 +115,13 @@ async function main() {
 
   await Promise.all(tasks);
   bar.stop();
+  await closeBrowser();
 
+  const ok = statusCounts[200] || 0;
+  const blocked = statusCounts[403] || 0;
   console.log(`\n✓ Scraped ${total} IDs — found ${results.length} active stores.`);
+  console.log(`  HTTP 200: ${ok} | HTTP 403 (blocked): ${blocked} | other: ${total - ok - blocked}`);
+
 
   if (results.length === 0) {
     console.log('No stores found. Check your ID range or network connection.');
